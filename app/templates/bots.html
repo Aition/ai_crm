@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Bot 运营中心</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>Bot 运营中心</h1>
+        <div class="muted">企业微信 / 飞书 / 钉钉统一入口（客群消息 + 回复管理）</div>
+      </div>
+      <div class="top-actions">
+        <a class="btn-outline" href="/">返回分析</a>
+        <a class="btn-outline" href="/qa">QA 知识库</a>
+        <a class="btn-outline" href="/closed-issues">闭环问题库</a>
+        <a class="btn-outline" href="/audiences">客群信息</a>
+      </div>
+    </header>
+
+    <section class="panel bot-section">
+      <div class="panel-title">Bot 集成</div>
+      <div class="bot-grid">
+        <div class="bot-card">
+          <div>
+            <div class="title">企业微信</div>
+            <div class="muted">外部客户群，支持@与主动发送</div>
+          </div>
+          <div class="bot-meta">
+            <div>状态：<span class="tag success">已准备</span></div>
+            <div>回调：<span class="muted">/integrations/wecom/callback</span></div>
+          </div>
+        </div>
+        <div class="bot-card inactive">
+          <div>
+            <div class="title">飞书</div>
+            <div class="muted">待接入（Lark/Feishu）</div>
+          </div>
+          <div class="bot-meta">
+            <div>状态：<span class="tag warn">计划中</span></div>
+            <div class="muted">后续统一接入</div>
+          </div>
+        </div>
+        <div class="bot-card inactive">
+          <div>
+            <div class="title">钉钉</div>
+            <div class="muted">待接入</div>
+          </div>
+          <div class="bot-meta">
+            <div>状态：<span class="tag warn">计划中</span></div>
+            <div class="muted">后续统一接入</div>
+          </div>
+        </div>
+      </div>
+      <div class="log-card">
+        <div class="label">RPA 日志流</div>
+        <div class="log-list" id="botLogList">
+          <div class="muted">加载中…</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title-row">
+        <div>
+          <div class="panel-title">售后Agent接管</div>
+          <div class="muted">选择群聊 → 开始接管（分析 + 写入 RPA + 启动轮询）</div>
+        </div>
+        <div class="panel-actions">
+          <button class="btn-outline" type="button" onclick="openRpaConfig()">RPA 配置管理</button>
+          <button class="btn-outline" type="button" onclick="openRpaSession()">会话查询 / 已回复</button>
+        </div>
+      </div>
+      <form method="post" action="/bots/analysis/batch" class="bot-form bot-form-block">
+        <div class="group-batch-grid split">
+          <div class="group-batch-left">
+            <div class="group-search group-search-inline">
+              <input id="batchGroupSearch" placeholder="搜索群聊..." autocomplete="off" />
+              <button class="btn" type="submit">开始接管</button>
+            </div>
+            <div class="current-group" id="batchGroupCount">匹配 0 个</div>
+            <div class="group-multi list" id="batchGroupList">
+              {% for g in groups %}
+                {% set profile = profile_map.get(g.id) %}
+                {% set rpa = rpa_map.get(g.id) %}
+                {% set taken_over = (rpa and rpa.status == 'active') %}
+                {% if not taken_over %}
+                  <label class="group-multi-item group-select-item" data-text="{{ g.name | lower }}">
+                    <input type="checkbox" name="roomids" value="{{ g.external_id }}" />
+                    <div class="group-select-content">
+                      <div class="title name">{{ g.name }}</div>
+                      <div class="counts counts-inline">
+                        <span>总数 {{ counts.get(g.id, 0) }}</span>
+                        <span>已分析 {{ analyzed_counts.get(g.id, 0) }}</span>
+                        <span>未分析 {{ un_analyzed_counts.get(g.id, 0) }}</span>
+                      </div>
+                    </div>
+                  </label>
+                {% endif %}
+              {% endfor %}
+            </div>
+            <div class="selected-groups">
+              <div class="label">已选择</div>
+              <div class="selected-list" id="batchSelectedList">
+                <span class="muted">暂无</span>
+              </div>
+            </div>
+          </div>
+          <div class="group-batch-right">
+            <div class="muted">分析完成后自动写入 RPA，并启动轮询。</div>
+            <div class="progress-card compact">
+              <div class="label">接管进度</div>
+              <div class="muted" id="batchProgressMeta">暂无任务</div>
+              <div class="progress-stepper" id="batchProgressStepper">
+                <div class="progress-segments" id="batchProgressSegments">
+                  <span class="segment" data-stage="拉取群历史消息"></span>
+                  <span class="segment" data-stage="历史画像分析"></span>
+                  <span class="segment" data-stage="RPA接管"></span>
+                  <span class="segment" data-stage="完成"></span>
+                </div>
+                <div class="progress-steps" id="batchTodoList">
+                  <div class="todo-item" data-stage="拉取群历史消息"><span class="text">拉取群历史消息</span></div>
+                  <div class="todo-item" data-stage="历史画像分析"><span class="text">历史画像分析</span></div>
+                  <div class="todo-item" data-stage="RPA接管"><span class="text">RPA 接管</span></div>
+                  <div class="todo-item" data-stage="完成"><span class="text">完成</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="log-card">
+              <div class="label">RPA 日志流</div>
+              <div class="log-list" id="rpaLogStream">
+                <div class="muted">加载中…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">已接管客户群</div>
+      {% if groups %}
+        <div class="table qa-table dense takeover-table">
+          <div class="table-row table-head">
+            <div>客户群</div>
+            <div>已接管信息</div>
+            <div>本次接管开始时间</div>
+            <div>操作</div>
+          </div>
+          {% for g in groups %}
+            {% set profile = profile_map.get(g.id) %}
+            {% set rpa = rpa_map.get(g.id) %}
+            {% set rv = rpa_view.get(g.id) %}
+            {% set taken_over = (rpa and rpa.status == 'active') %}
+            {% if taken_over %}
+            <div class="table-row takeover-row" data-roomid="{{ g.external_id }}" data-start-ts="{{ rv.start_ts if rv else '' }}">
+              <div>
+                <div class="group-name">{{ g.name }}</div>
+                {% if rv %}
+                  <span class="status-tag {{ rv.status_class }}" data-status>{{ rv.status_cn }}</span>
+                {% endif %}
+              </div>
+              <div class="muted">
+                {% if rv %}
+                  <div>已接管时长 <span class="stat-highlight time" data-duration>{{ rv.duration_text }}</span></div>
+                  <div>本次接管已回复 <span class="stat-highlight count" data-replied>{{ rv.replied }}</span> 个问题</div>
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+              <div class="muted">
+                {% if rv and rv.start_text %}
+                  {{ rv.start_text }}
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+              <div>
+                <div class="btn-row">
+                  <button class="btn-outline" type="button" onclick="openRpaRecords('{{ g.external_id }}', '{{ g.name }}', '{{ rv.start_ts if rv else '' }}')">接管记录</button>
+                  <form method="post" action="/bots/takeover/cancel" onsubmit="return confirm('确认取消接管该群？');">
+                    <input type="hidden" name="roomid" value="{{ g.external_id }}" />
+                    <button class="btn-outline" type="submit">取消接管</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="muted">暂无客户群。</div>
+      {% endif %}
+    </section>
+
+    <div class="modal" id="rpaConfigModal" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div class="title">RPA 配置管理</div>
+          <button class="btn-outline" type="button" onclick="closeRpaConfig()">关闭</button>
+        </div>
+        <div class="rpa-actions">
+          <button class="btn-outline" type="button" onclick="rpaLoadConfig()">读取配置</button>
+          <button class="btn" type="button" onclick="rpaUpdateConfig()">合并更新</button>
+        </div>
+        <textarea id="rpaConfigEditor" class="rpa-textarea" placeholder='{"only_roomids_append":"roomid1"}'></textarea>
+        <div class="rpa-output" id="rpaConfigOutput">-</div>
+      </div>
+    </div>
+
+    <div class="modal" id="rpaSessionModal" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div class="title">会话查询 / 已回复清理</div>
+          <button class="btn-outline" type="button" onclick="closeRpaSession()">关闭</button>
+        </div>
+        <div class="rpa-form-row">
+          <input id="rpaSessionId" placeholder="session_id (roomid:userid)" />
+          <input id="rpaRoomId" placeholder="roomid" />
+          <input id="rpaSenderId" placeholder="sender_id" />
+        </div>
+        <div class="rpa-actions">
+          <button class="btn-outline" type="button" onclick="rpaQuerySessions()">查询会话</button>
+        </div>
+        <pre class="rpa-pre" id="rpaSessionOutput">-</pre>
+        <div class="rpa-form-row">
+          <input id="rpaMsgId" placeholder="msgid（可选）" />
+        </div>
+        <div class="rpa-actions">
+          <button class="btn-outline" type="button" onclick="rpaClearReplied()">清理已回复</button>
+        </div>
+        <div class="rpa-output" id="rpaClearOutput">-</div>
+      </div>
+    </div>
+
+    <div class="modal" id="rpaRecordsModal" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div class="title">接管记录</div>
+          <button class="btn-outline" type="button" onclick="closeRpaRecords()">关闭</button>
+        </div>
+        <div class="rpa-actions">
+          <button class="btn-outline" type="button" id="recordsScopeCurrent" onclick="setRecordsScope('current')">本次接管记录</button>
+          <button class="btn-outline" type="button" id="recordsScopeAll" onclick="setRecordsScope('all')">历史接管记录</button>
+        </div>
+        <div class="muted" id="rpaRecordsMeta">-</div>
+        <div class="table qa-table dense records-table" id="rpaRecordsTable"></div>
+      </div>
+    </div>
+
+
+
+
+    <section class="panel">
+      <div class="panel-title">群聊名映射</div>
+      <div class="bot-actions">
+        <form method="post" action="/bots/clear-messages" onsubmit="return confirm('确认清空所有聊天与回复记录？此操作不可恢复。');">
+          <button class="btn-outline" type="submit">一键清空聊天记录</button>
+        </form>
+        <form method="post" action="/bots/clear-logs" onsubmit="return confirm('确认清空所有日志？此操作不可恢复。');">
+          <button class="btn-outline" type="submit">一键清空日志</button>
+        </form>
+      </div>
+      <form method="post" action="/bots/groups/display-map" class="bot-form">
+        <select name="group_roomid" required>
+          <option value="">选择客户群</option>
+          {% for g in groups %}
+            <option value="{{ g.external_id }}">{{ g.name }}</option>
+          {% endfor %}
+        </select>
+        <input name="display_name" placeholder="映射显示名（留空则使用上游群名）" />
+        <button class="btn" type="submit">保存映射</button>
+      </form>
+      <form method="post" action="/bots/appchat/create" class="bot-form">
+        <input name="name" value="测试群" placeholder="群聊名称" required />
+        <input name="owner" placeholder="群主 userId" required />
+        <input name="userlist" placeholder="成员userId，逗号分隔" required />
+        <input name="chatid" placeholder="自定义chatid(可选)" />
+        <button class="btn" type="submit">创建应用群聊</button>
+      </form>
+      <form method="post" action="/bots/appchat/send" class="bot-form">
+        <input name="chatid" placeholder="chatid" required />
+        <input name="content" placeholder="群聊消息内容" required />
+        <button class="btn-outline" type="submit">发送到应用群聊</button>
+      </form>
+      <form method="post" action="/bots/channels/bind" class="bot-form">
+        <input name="provider" value="wecom" placeholder="平台：wecom/feishu/dingtalk" required />
+        <input name="external_id" placeholder="外部群ID/roomid" required />
+        <input name="name" placeholder="群名称（可选）" />
+        <select name="group_roomid">
+          <option value="">绑定到客户群（可选）</option>
+          {% for g in groups %}
+            <option value="{{ g.external_id }}">{{ g.name }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn" type="submit">绑定</button>
+      </form>
+      {% if channels %}
+        <div class="table qa-table dense">
+          <div class="table-row table-head">
+            <div>渠道</div>
+            <div>外部群ID</div>
+            <div>群名</div>
+            <div>关联客户群</div>
+            <div>显示名映射</div>
+            <div>状态</div>
+            <div>创建时间</div>
+          </div>
+          {% for ch in channels %}
+            <div class="table-row">
+              <div><span class="tag info">{{ ch.provider }}</span></div>
+              <div class="muted">{{ ch.external_id }}</div>
+              <div>{{ ch.name or '-' }}</div>
+              <div>
+                {% if ch.group %}
+                  {{ ch.group.name }}
+                {% else %}
+                  <span class="muted">未绑定</span>
+                {% endif %}
+              </div>
+              <div class="muted">
+                {% if ch.group and display_map.get(ch.group.id) and display_map.get(ch.group.id).display_name %}
+                  {{ display_map.get(ch.group.id).display_name }}
+                {% else %}
+                  <span class="muted">-</span>
+                {% endif %}
+              </div>
+              <div>{{ ch.status }}</div>
+              <div class="muted">{{ ch.created_at.strftime("%Y-%m-%d %H:%M") if ch.created_at else '-' }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="muted">暂无渠道映射记录。</div>
+      {% endif %}
+    </section>
+
+  </div>
+
+  <script>
+    async function refreshBotLogs() {
+      try {
+        const now = Date.now();
+        const metaResp = await fetch(`/rpa/logs?limit=1&offset=0&_=${now}`, { cache: "no-store" });
+        if (!metaResp.ok) return;
+        const meta = await metaResp.json();
+        const total = Number(meta.total || 0);
+        const limit = 200;
+        const offset = Math.max(0, total - limit);
+        const resp = await fetch(`/rpa/logs?limit=${limit}&offset=${offset}&_=${now}`, { cache: "no-store" });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const logs = data.data || [];
+        const wrap = document.getElementById("botLogList");
+        if (!wrap) return;
+        if (!logs.length) {
+          wrap.innerHTML = "<div class=\"muted\">暂无日志</div>";
+          return;
+        }
+        const toMs = (val) => {
+          if (!val) return 0;
+          if (typeof val === "number") return val;
+          if (/^\\d+$/.test(val)) return Number(val);
+          const d = new Date(val);
+          return isNaN(d.getTime()) ? 0 : d.getTime();
+        };
+        const rows = logs
+          .map((log) => ({ ...log, tsMs: toMs(log.iso || log.ts) }))
+          .filter((l) => l.tsMs)
+          .sort((a, b) => b.tsMs - a.tsMs)
+          .slice(0, 120);
+        wrap.innerHTML = rows.map((log) => {
+          const ts = log.tsMs ? new Date(log.tsMs).toLocaleString() : "--";
+          const level = log.level || "info";
+          const eventName = log.event_en || log.event || "";
+          const event = eventName ? ` ${eventName}` : "";
+          let room = "";
+          if (log.room_display || log.room_name) {
+            room = ` ${log.room_display || log.room_name}`;
+          } else if (log.roomid) {
+            room = ` ${log.roomid}`;
+          }
+          const sender = log.sender_id ? ` sender=${log.sender_id}` : "";
+          let detail = log.message || "";
+          if (eventName === "poll_cycle_end" || eventName === "poll_cycle_start") {
+            const rooms = log.rooms != null ? `rooms=${log.rooms}` : "";
+            const messages = log.messages != null ? `messages=${log.messages}` : "";
+            const triggered = log.triggered != null ? `triggered=${log.triggered}` : "";
+            const replied = log.replied != null ? `replied=${log.replied}` : "";
+            detail = [rooms, messages, triggered, replied].filter(Boolean).join(" ");
+          } else if (eventName === "messages_fetched") {
+            const count = log.count != null ? `count=${log.count}` : "";
+            const replied = log.replied != null ? `replied=${log.replied}` : "";
+            detail = [count, replied].filter(Boolean).join(" ");
+          } else if (eventName.includes("replied")) {
+            const reply = log.reply || log.reply_text || log.answer || log.message || "";
+            detail = reply ? `reply=${reply.slice(0, 10)}` : (log.message || "");
+          }
+          const msg = detail ? ` - ${detail}` : "";
+          return `<div class=\"log-line\">
+            <span class=\"log-time\">[${ts}]</span>
+            <span class=\"tag ${level === "error" ? "danger" : level === "warn" ? "warn" : "success"}\">${level}</span>
+            <span class=\"log-action\">RPA${event}</span>
+            <span class=\"log-message\">${room}${sender}${msg}</span>
+          </div>`;
+        }).join("");
+      } catch (e) {}
+    }
+    refreshBotLogs();
+    setInterval(refreshBotLogs, 3000);
+
+    function fuzzyMatch(text, pattern) {
+      if (!pattern) return true;
+      let t = text.toLowerCase();
+      let p = pattern.toLowerCase();
+      let ti = 0;
+      let pi = 0;
+      while (ti < t.length && pi < p.length) {
+        if (t[ti] === p[pi]) {
+          pi += 1;
+        }
+        ti += 1;
+      }
+      return pi === p.length;
+    }
+
+    const batchSearch = document.getElementById("batchGroupSearch");
+    const batchList = document.getElementById("batchGroupList");
+    const batchCount = document.getElementById("batchGroupCount");
+    const batchSelected = document.getElementById("batchSelectedList");
+    if (batchSearch && batchList) {
+      const items = Array.from(batchList.querySelectorAll(".group-multi-item"));
+      const applyFilter = () => {
+        const keyword = batchSearch.value.trim().toLowerCase();
+        let visible = 0;
+        items.forEach((item) => {
+          const nameEl = item.querySelector(".name");
+          const text = (nameEl ? nameEl.textContent : item.getAttribute("data-text") || item.textContent || "").trim().toLowerCase();
+          const match = !keyword || fuzzyMatch(text, keyword);
+          item.hidden = !match;
+          item.style.display = match ? "" : "none";
+          if (match) visible += 1;
+        });
+        if (batchCount) {
+          batchCount.textContent = `匹配 ${visible} 个`;
+        }
+      };
+      applyFilter();
+      batchSearch.addEventListener("input", applyFilter);
+      if (batchSelected) {
+        const renderSelected = () => {
+          const checked = items.filter((item) => item.querySelector("input")?.checked);
+          if (!checked.length) {
+            batchSelected.innerHTML = "<span class=\"muted\">暂无</span>";
+            return;
+          }
+          batchSelected.innerHTML = checked.map((item) => {
+            const text = item.querySelector(".name")?.textContent || "-";
+            return `<span class="tag info">${text}</span>`;
+          }).join(" ");
+        };
+        items.forEach((item) => {
+          const input = item.querySelector("input");
+          if (input) {
+            input.addEventListener("change", renderSelected);
+          }
+        });
+        renderSelected();
+      }
+    }
+
+    async function refreshRpaLogs() {
+      try {
+        const now = Date.now();
+        const analysisResp = await fetch(`/api/analysis/logs?limit=120&_=${now}`, { cache: "no-store" });
+        if (!analysisResp.ok) return;
+        const analysisData = await analysisResp.json();
+        const wrap = document.getElementById("rpaLogStream");
+        if (!wrap) return;
+        const aLogs = (analysisData.logs || []).map((log) => ({
+          type: "analysis",
+          ts: log.created_at,
+          stage: log.stage,
+          message: log.message,
+          group_name: log.group_name,
+          task_id: log.task_id,
+        }));
+        const toMs = (val) => {
+          if (!val) return 0;
+          if (typeof val === "number") return val;
+          if (/^\\d+$/.test(val)) return Number(val);
+          const d = new Date(val);
+          return isNaN(d.getTime()) ? 0 : d.getTime();
+        };
+        const logs = [...aLogs]
+          .map((l) => ({ ...l, tsMs: toMs(l.ts) }))
+          .filter((l) => l.tsMs)
+          .sort((a, b) => b.tsMs - a.tsMs)
+          .slice(0, 120);
+        if (!logs.length) {
+          wrap.innerHTML = "<div class=\"muted\">暂无日志</div>";
+          return;
+        }
+        const fetchLine = `<div class="log-line"><span class="log-time">[${new Date(now).toLocaleTimeString()}]</span><span class="tag info">刷新</span><span class="log-action">日志拉取</span><span class="log-message">最新 ${logs.length} 条</span></div>`;
+        wrap.innerHTML = fetchLine + logs.map((log) => {
+          const ts = log.tsMs ? new Date(log.tsMs).toLocaleString() : "--";
+          const group = log.group_name ? ` ${log.group_name}` : "";
+          return `<div class="log-line">
+            <span class="log-time">[${ts}]</span>
+            <span class="tag info">分析</span>
+            <span class="log-action">${log.stage}${group}</span>
+            <span class="log-message">- ${log.message}</span>
+          </div>`;
+        }).join("");
+
+        // Update progress/todo list using latest analysis task logs
+        const latestAnalysis = aLogs.find((l) => l.task_id);
+        const progressSegments = document.getElementById("batchProgressSegments");
+        const progressMeta = document.getElementById("batchProgressMeta");
+        const todoList = document.getElementById("batchTodoList");
+        if (progressSegments && progressMeta && todoList) {
+          if (!latestAnalysis) {
+            progressMeta.textContent = "暂无任务";
+            progressSegments.querySelectorAll(".segment").forEach((el) => el.classList.remove("done", "active"));
+            todoList.querySelectorAll(".todo-item").forEach((el) => el.classList.remove("done", "active"));
+          } else {
+            const taskId = latestAnalysis.task_id;
+            const taskLogs = aLogs.filter((l) => l.task_id === taskId);
+            const doneStages = new Set(taskLogs.map((l) => l.stage));
+            const mapped = new Set();
+            const has = (s) => doneStages.has(s);
+            if (has("数据清洗")) mapped.add("拉取群历史消息");
+            if (has("QA 抽取") || has("主题聚合") || has("画像汇总")) mapped.add("历史画像分析");
+            if (has("RPA同步")) mapped.add("RPA接管");
+            if (has("完成")) mapped.add("完成");
+            const steps = Array.from(todoList.querySelectorAll(".todo-item"));
+            let doneCount = 0;
+            steps.forEach((el) => {
+              const stage = el.getAttribute("data-stage");
+              if (stage && mapped.has(stage)) {
+                el.classList.add("done");
+                el.classList.remove("active");
+                doneCount += 1;
+              } else {
+                el.classList.remove("done");
+                el.classList.remove("active");
+              }
+            });
+            const lastStage = taskLogs[0]?.stage || "";
+            let activeStage = "";
+            if (lastStage === "数据清洗") activeStage = "拉取群历史消息";
+            else if (lastStage === "QA 抽取" || lastStage === "主题聚合" || lastStage === "画像汇总") activeStage = "历史画像分析";
+            else if (lastStage === "RPA同步") activeStage = "RPA接管";
+            else if (lastStage === "完成") activeStage = "完成";
+            const activeEl = steps.find((el) => el.getAttribute("data-stage") === activeStage);
+            if (activeEl && !activeEl.classList.contains("done")) {
+              activeEl.classList.add("active");
+            }
+            const segs = Array.from(progressSegments.querySelectorAll(".segment"));
+            const activeIndex = Math.max(0, steps.findIndex((el) => el.getAttribute("data-stage") === activeStage));
+            segs.forEach((seg, idx) => {
+              seg.classList.remove("done", "active");
+              if (idx < activeIndex) seg.classList.add("done");
+              if (idx === activeIndex) seg.classList.add("active");
+            });
+            const groupName = latestAnalysis.group_name ? ` · ${latestAnalysis.group_name}` : "";
+            progressMeta.textContent = `任务 ${taskId}${groupName}`;
+          }
+        }
+        updateTakeoverStats();
+      } catch (e) {}
+    }
+    refreshRpaLogs();
+    setInterval(refreshRpaLogs, 10000);
+
+    function formatDuration(seconds) {
+      const s = Math.max(0, Math.floor(seconds));
+      const days = Math.floor(s / 86400);
+      const hours = Math.floor((s % 86400) / 3600);
+      const minutes = Math.floor((s % 3600) / 60);
+      return `${days}天${hours}小时${minutes}分钟`;
+    }
+
+    async function updateTakeoverStats() {
+      const rows = Array.from(document.querySelectorAll(".takeover-row"));
+      if (!rows.length) return;
+      const now = Math.floor(Date.now() / 1000);
+      rows.forEach((row) => {
+        const startTs = Number(row.getAttribute("data-start-ts") || "0");
+        const durationEl = row.querySelector("[data-duration]");
+        if (durationEl && startTs) {
+          durationEl.textContent = formatDuration(now - startTs);
+        }
+      });
+      await Promise.all(rows.map(async (row) => {
+        const roomid = row.getAttribute("data-roomid");
+        if (!roomid) return;
+        try {
+          const startTs = row.getAttribute("data-start-ts") || "";
+          const startParam = startTs ? `&start=${encodeURIComponent(startTs)}` : "";
+          const recResp = await fetch(`/rpa/records?roomid=${encodeURIComponent(roomid)}${startParam}&limit=1&offset=0`, { cache: "no-store" });
+          if (recResp.ok) {
+            const recData = await recResp.json();
+            const total = recData.total != null ? recData.total : (recData.data || []).length;
+            const repliedEl = row.querySelector("[data-replied]");
+            if (repliedEl) repliedEl.textContent = total;
+          }
+        } catch (e) {}
+        try {
+          const logResp = await fetch(`/rpa/logs?roomid=${encodeURIComponent(roomid)}&limit=1&offset=0`, { cache: "no-store" });
+          if (logResp.ok) {
+            const logData = await logResp.json();
+            const item = (logData.data || [])[0];
+            const statusEl = row.querySelector("[data-status]");
+            if (statusEl) {
+              const eventName = (item && (item.event_en || item.event)) || "";
+              const isReplying = eventName.includes("reply");
+              statusEl.textContent = isReplying ? "正在回复" : "监管中";
+              statusEl.classList.remove("status-reply", "status-monitor");
+              statusEl.classList.add(isReplying ? "status-reply" : "status-monitor");
+            }
+          }
+        } catch (e) {}
+      }));
+    }
+
+    async function rpaLoadConfig() {
+      const resp = await fetch("/rpa/config");
+      const data = await resp.json();
+      document.getElementById("rpaConfigEditor").value = JSON.stringify(data, null, 2);
+      document.getElementById("rpaConfigOutput").innerText = "已读取";
+    }
+
+    async function rpaUpdateConfig() {
+      const text = document.getElementById("rpaConfigEditor").value || "{}";
+      let payload = {};
+      try {
+        payload = JSON.parse(text);
+      } catch (e) {
+        document.getElementById("rpaConfigOutput").innerText = "JSON格式错误";
+        return;
+      }
+      const resp = await fetch("/rpa/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      document.getElementById("rpaConfigOutput").innerText = JSON.stringify(data, null, 2);
+    }
+
+    async function rpaQuerySessions() {
+      const sessionId = document.getElementById("rpaSessionId").value.trim();
+      const roomid = document.getElementById("rpaRoomId").value.trim();
+      const senderId = document.getElementById("rpaSenderId").value.trim();
+      const params = new URLSearchParams();
+      if (sessionId) params.append("session_id", sessionId);
+      if (roomid) params.append("roomid", roomid);
+      if (senderId) params.append("sender_id", senderId);
+      const resp = await fetch(`/rpa/sessions?${params.toString()}`);
+      const data = await resp.json();
+      document.getElementById("rpaSessionOutput").innerText = JSON.stringify(data, null, 2);
+    }
+
+    async function rpaQueryLogs() {
+      const params = new URLSearchParams();
+      const limit = document.getElementById("rpaLogLimit").value.trim();
+      const offset = document.getElementById("rpaLogOffset").value.trim();
+      const sessionId = document.getElementById("rpaLogSession").value.trim();
+      const roomid = document.getElementById("rpaLogRoom").value.trim();
+      const senderId = document.getElementById("rpaLogSender").value.trim();
+      const event = document.getElementById("rpaLogEvent").value.trim();
+      if (limit) params.append("limit", limit);
+      if (offset) params.append("offset", offset);
+      if (sessionId) params.append("session_id", sessionId);
+      if (roomid) params.append("roomid", roomid);
+      if (senderId) params.append("sender_id", senderId);
+      if (event) params.append("event", event);
+      const resp = await fetch(`/rpa/logs?${params.toString()}`);
+      const data = await resp.json();
+      document.getElementById("rpaLogOutput").innerText = JSON.stringify(data, null, 2);
+    }
+
+    async function rpaClearReplied() {
+      const msgid = document.getElementById("rpaMsgId").value.trim();
+      const payload = msgid ? { msgid } : {};
+      const resp = await fetch("/rpa/replied/clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      document.getElementById("rpaClearOutput").innerText = JSON.stringify(data, null, 2);
+    }
+
+    function openRpaConfig() {
+      document.getElementById("rpaConfigModal").hidden = false;
+    }
+    function closeRpaConfig() {
+      document.getElementById("rpaConfigModal").hidden = true;
+    }
+    function openRpaSession() {
+      document.getElementById("rpaSessionModal").hidden = false;
+    }
+    function closeRpaSession() {
+      document.getElementById("rpaSessionModal").hidden = true;
+    }
+
+    function openRpaRecords(roomid, name, startTs) {
+      const modal = document.getElementById("rpaRecordsModal");
+      document.getElementById("rpaRecordsMeta").innerText = name ? `群：${name}` : "-";
+      document.getElementById("rpaRecordsTable").innerHTML = "";
+      modal.hidden = false;
+      modal.setAttribute("data-roomid", roomid || "");
+      modal.setAttribute("data-start-ts", startTs || "");
+      modal.setAttribute("data-scope", "current");
+      setRecordsScope("current");
+      rpaQueryRecords();
+    }
+
+    function closeRpaRecords() {
+      document.getElementById("rpaRecordsModal").hidden = true;
+    }
+
+    function setRecordsScope(scope) {
+      const modal = document.getElementById("rpaRecordsModal");
+      const startTs = modal.getAttribute("data-start-ts") || "";
+      modal.setAttribute("data-scope", scope);
+      if (scope === "all") {
+        document.getElementById("recordsScopeAll").classList.add("btn-active");
+        document.getElementById("recordsScopeCurrent").classList.remove("btn-active");
+        const meta = document.getElementById("rpaRecordsMeta");
+        meta.innerText = meta.innerText.replace("（本次接管）", "").replace("（历史接管）", "") + "（历史接管）";
+      } else {
+        document.getElementById("recordsScopeCurrent").classList.add("btn-active");
+        document.getElementById("recordsScopeAll").classList.remove("btn-active");
+        const meta = document.getElementById("rpaRecordsMeta");
+        meta.innerText = meta.innerText.replace("（本次接管）", "").replace("（历史接管）", "") + "（本次接管）";
+      }
+      rpaQueryRecords();
+    }
+
+    async function rpaQueryRecords() {
+      const params = new URLSearchParams();
+      const modal = document.getElementById("rpaRecordsModal");
+      const roomid = modal.getAttribute("data-roomid") || "";
+      const scope = modal.getAttribute("data-scope") || "current";
+      const startTs = modal.getAttribute("data-start-ts") || "";
+      const start = scope === "current" ? startTs : "";
+      const limit = "100";
+      const offset = "0";
+      if (roomid) params.append("roomid", roomid);
+      if (start) params.append("start", start);
+      if (limit) params.append("limit", limit);
+      if (offset) params.append("offset", offset);
+      const resp = await fetch(`/rpa/records?${params.toString()}`, { cache: "no-store" });
+      const data = await resp.json();
+      let memberMap = {};
+      if (roomid) {
+        try {
+          const profileResp = await fetch(`/api/groups/${roomid}/profile`, { cache: "no-store" });
+          if (profileResp.ok) {
+            const profileData = await profileResp.json();
+            const members = profileData.members || [];
+            members.forEach((m) => {
+              memberMap[m.external_user_id] = {
+                name: m.name,
+                nickname: m.nickname,
+                real_name: m.real_name,
+              };
+            });
+          }
+        } catch (e) {
+          memberMap = {};
+        }
+      }
+      const table = document.getElementById("rpaRecordsTable");
+      const meta = document.getElementById("rpaRecordsMeta");
+      const topics = data.data || data.records || data.items || [];
+      const total = data.total != null ? data.total : topics.length;
+      let rows = [];
+      topics.forEach((topic) => {
+        const qa = topic.qa_list || [];
+        if (qa.length) {
+          qa.forEach((item) => {
+            rows.push({
+              ...item,
+              _topic: topic,
+            });
+          });
+        }
+      });
+      meta.innerText = `共 ${total} 主题，当前 ${rows.length} 条`;
+      if (!rows.length) {
+        table.innerHTML = '<div class="muted">暂无记录。</div>';
+        return;
+      }
+      const header = `
+        <div class="table-row table-head">
+          <div>主题</div>
+          <div>参与人</div>
+          <div>状态</div>
+          <div>最近对话</div>
+        </div>`;
+      const body = topics.map((topic) => {
+        const status = topic.topic_status || "";
+        const followupAt = topic.topic_next_followup_at;
+        const resolvedAt = topic.topic_closed_ts;
+        let statusText = "";
+        let statusClass = "issue-open";
+        let metaLine = "";
+        if (status === "open") {
+          statusText = "处理中";
+          statusClass = "issue-open";
+          if (followupAt) {
+            const d = new Date(followupAt * 1000);
+            metaLine = `下一次追问时间：${d.toLocaleString()}`;
+          }
+        } else if (status === "partially_closed") {
+          statusText = "部分闭环";
+          statusClass = "issue-await";
+          if (followupAt) {
+            const d = new Date(followupAt * 1000);
+            metaLine = `下一次追问时间：${d.toLocaleString()}`;
+          }
+        } else if (status === "closed") {
+          statusText = "已闭环";
+          statusClass = "issue-resolved";
+          if (resolvedAt) {
+            const d = new Date(resolvedAt * 1000);
+            metaLine = `闭环时间：${d.toLocaleString()}`;
+          }
+        }
+        const statusHtml = statusText
+          ? `<div class="issue-status ${statusClass}">${statusText}</div>${metaLine ? `<div class="issue-meta">${metaLine}</div>` : ""}`
+          : "";
+        const summary = topic.topic_summary || "";
+        const topicId = topic.topic_id || "-";
+        const qa = topic.qa_list || [];
+        const lastQa = qa.length ? qa[qa.length - 1] : null;
+        const lastQ = lastQa ? (lastQa.q || "") : "";
+        const lastA = lastQa ? (lastQa.a || "") : "";
+        const lastTs = lastQa ? (lastQa.ts || 0) : 0;
+        const lastTime = lastTs ? new Date(lastTs * 1000).toLocaleString() : "-";
+        const participants = (topic.topic_participants || []).map((uid) => {
+          const mapped = memberMap[uid];
+          const mappedName = mapped ? (mapped.nickname || mapped.real_name) : "";
+          const rawName = mapped ? mapped.name : "";
+          return mappedName || rawName || uid;
+        }).filter(Boolean);
+        return `
+          <div class="table-row">
+            <div>
+              <div class="topic-title">${topicId}</div>
+              <div class="topic-summary">${summary || "-"}</div>
+            </div>
+            <div class="muted">${participants.join("、") || "-"}</div>
+            <div>${statusHtml}</div>
+            <div>
+              <div class="muted">${lastTime}</div>
+              <div>${lastQ || "-"}</div>
+              <div class="muted">${lastA || "-"}</div>
+            </div>
+          </div>`;
+      }).join("");
+      table.innerHTML = header + body;
+    }
+
+
+  </script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>已闭环问题详情</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>已闭环问题详情查询</h1>
+        <div class="muted">加载已闭环数据并写入知识库</div>
+      </div>
+      <div class="top-actions">
+        <a class="btn-outline" href="/">返回客户群分析</a>
+        <a class="btn-outline" href="/qa">QA 知识库</a>
+      </div>
+    </header>
+
+    <section class="control-bar">
+      <form method="post" action="/settings/closed-issues-api" class="form-inline">
+        <input name="api_base" value="{{ api_base }}" placeholder="已闭环接口地址" required />
+        <input name="api_key" value="{{ api_key }}" placeholder="API Key" />
+        <input name="kb_doc_form" value="{{ kb_doc_form }}" placeholder="doc_form（如 text_model）" />
+        <input name="kb_process_mode" value="{{ kb_process_mode }}" placeholder="process_mode（automatic/custom）" />
+        <button class="btn-outline" type="submit">保存接口配置</button>
+      </form>
+      <div class="muted">用于拉取闭环问题数据并写入 Dify 知识库。</div>
+    </section>
+
+    <main class="panel">
+      {% if error %}
+        <div class="notice warning">拉取失败：{{ error }}</div>
+      {% endif %}
+      <div class="panel-title-row">
+        <div>
+          <div class="panel-title">闭环问题列表</div>
+          <div class="muted">总计 {{ total }}，待写入 {{ pending }}，已写入 {{ synced }}</div>
+        </div>
+        <div class="panel-actions">
+          <form method="post" action="/closed-issues/fetch">
+            <button class="btn" type="submit">拉取已闭环数据</button>
+          </form>
+          <form method="post" action="/closed-issues/sync">
+            <input type="hidden" name="mode" value="pending" />
+            <button class="btn-outline" type="submit">写入知识库（待写入）</button>
+          </form>
+          <form method="post" action="/closed-issues/sync">
+            <input type="hidden" name="mode" value="all" />
+            <button class="btn-outline" type="submit">写入知识库（全部）</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="group-search">
+        <input id="issueSearch" placeholder="搜索客户或标题..." autocomplete="off" value="{{ query }}" />
+      </div>
+
+      {% if issues %}
+        <div class="table qa-table dense" id="issueTable">
+          <div class="table-row table-head">
+            <div>客户</div>
+            <div>标题</div>
+            <div>摘要</div>
+            <div>团队</div>
+            <div>根因</div>
+            <div>处理方式</div>
+            <div>原声</div>
+            <div>同步状态</div>
+            <div>错误</div>
+          </div>
+          {% for issue in issues %}
+            <div class="table-row issue-row" data-text="{{ (issue.customer or '') | lower }} {{ (issue.title or '') | lower }}">
+              <div class="muted">{{ issue.customer or "-" }}</div>
+              <div>{{ issue.title or "-" }}</div>
+              <div class="muted">{{ issue.summary or "-" }}</div>
+              <div class="muted">
+                {% if issue.team %}
+                  {{ issue.team | join("、") }}
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+              <div class="muted">{{ issue.root_cause or "-" }}</div>
+              <div class="muted">{{ issue.resolution or "-" }}</div>
+              <div class="muted">
+                {% if issue.original_voices %}
+                  <details>
+                    <summary>查看</summary>
+                    <div class="muted">{{ issue.original_voices | join("<br/>") | safe }}</div>
+                  </details>
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+              <div class="muted">
+                {% if issue.kb_sync_status == "success" %}
+                  已写入
+                {% elif issue.kb_sync_status == "failed" %}
+                  写入失败
+                {% else %}
+                  待写入
+                {% endif %}
+              </div>
+              <div class="muted">
+                {% if issue.kb_sync_status == "failed" %}
+                  {{ (issue.kb_sync_error or '-')[:120] }}
+                {% else %}
+                  -
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="muted">暂无数据，请先拉取已闭环问题。</div>
+      {% endif %}
+    </main>
+  </div>
+
+  <script>
+    const issueSearch = document.getElementById("issueSearch");
+    const rows = Array.from(document.querySelectorAll(".issue-row"));
+    function applyIssueFilter() {
+      const keyword = (issueSearch?.value || "").trim().toLowerCase();
+      rows.forEach((row) => {
+        const text = row.getAttribute("data-text") || "";
+        row.hidden = keyword && !text.includes(keyword);
+      });
+    }
+    if (issueSearch) {
+      issueSearch.addEventListener("input", applyIssueFilter);
+      applyIssueFilter();
+    }
+  </script>
+</body>
+</html>

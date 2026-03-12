@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>人工检阅 - {{ group.name }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div>
+        <h1>人工检阅</h1>
+        <div class="muted">客户群: {{ group.name }}</div>
+      </div>
+      <a class="btn-outline" href="/groups/{{ group.id }}">返回</a>
+    </header>
+
+    <section class="card">
+      <h2>审核工作台</h2>
+      <form method="post" action="/reviews/{{ message.id }}/approve" class="review-grid form">
+        <div class="review-panel">
+          <div class="section-title">原始对话链</div>
+          <p class="message">{{ message.content }}</p>
+          <div class="muted">消息ID: {{ message.external_message_id }}</div>
+          <div class="muted">客户群: {{ group.name }}</div>
+          <div class="muted">分析摘要: {{ analysis.summary or "-" }}</div>
+        </div>
+
+        <div class="review-panel">
+          <div class="section-title">结构化 QA（可编辑）</div>
+          <div class="stack two-col">
+            <label>
+              客户群体分类
+              <input name="segment" placeholder="例如：价格敏感/功能咨询/流失预警" required />
+            </label>
+            <label>
+              标准问题
+              <textarea name="question" required>{{ analysis.question }}</textarea>
+            </label>
+            <label>
+              标准答案
+              <textarea name="answer" required>{{ analysis.answer }}</textarea>
+            </label>
+            <label>
+              原因 / 背景
+              <textarea name="reason" placeholder="可选"></textarea>
+            </label>
+            <label>
+              解决步骤
+              <textarea name="steps" placeholder="可选，支持多行"></textarea>
+            </label>
+            <label>
+              适用条件
+              <textarea name="conditions" placeholder="可选"></textarea>
+            </label>
+            <label>
+              审核人
+              <input name="reviewer" placeholder="可选" />
+            </label>
+            <label>
+              备注
+              <textarea name="notes" placeholder="可选"></textarea>
+            </label>
+          </div>
+          <div class="actions">
+            <button class="btn-outline" type="submit" name="action" value="save">保存草稿</button>
+            <button class="btn" type="submit" name="action" value="push">审核通过并入库</button>
+          </div>
+        </div>
+
+        <div class="review-panel">
+          <div class="section-title">知识库分类配置</div>
+          <div class="stack">
+            <label>
+              知识分类
+              <input name="category" placeholder="例如：账号/计费/集成" />
+            </label>
+            <label>
+              标签（逗号分隔）
+              <input name="tags" placeholder="例如：登录,安全,权限" />
+            </label>
+            <label>
+              适用产品
+              <input name="product" placeholder="例如：SaaS 标准版" />
+            </label>
+            <label>
+              版本范围
+              <input name="version_range" placeholder="例如：>=2.0.0" />
+            </label>
+            <label>
+              关键词
+              <input name="keywords" placeholder="例如：重置密码,安全中心" />
+            </label>
+            <label>
+              质量评分（1-5）
+              <input name="quality_score" type="number" min="1" max="5" />
+            </label>
+            <label>
+              是否通用
+              <select name="is_generic">
+                <option value="">未选择</option>
+                <option value="true">是</option>
+                <option value="false">否</option>
+              </select>
+            </label>
+          </div>
+          <div class="muted">右侧为结构化配置，可在左侧审核表单中一并提交。</div>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>驳回</h2>
+      <form method="post" action="/reviews/{{ message.id }}/reject" class="form">
+        <label>
+          审核人
+          <input name="reviewer" placeholder="可选" />
+        </label>
+        <label>
+          备注
+          <textarea name="notes" placeholder="原因"></textarea>
+        </label>
+        <div class="actions">
+          <button class="btn-outline" type="submit">驳回</button>
+        </div>
+      </form>
+    </section>
+  </div>
+</body>
+</html>

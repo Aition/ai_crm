@@ -1,0 +1,17 @@
+version: 0.0.1
+name: crm_qa_datasource
+label:
+  en_US: CRM QA Datasource
+  zh_Hans: CRM QA 数据源
+description:
+  en_US: Sync reviewed QA from CRM by group.
+  zh_Hans: 按客户群同步已审核 QA 到知识库。
+category: datasource
+minimum_dify_version: 1.13.0
+plugin_runner:
+  language: python
+  version: "3.10"
+  entrypoint: main.py
+plugins:
+  datasources:
+    - provider/crm_qa.yaml

@@ -1,0 +1,33 @@
+provider: crm_qa
+label:
+  en_US: CRM QA Provider
+  zh_Hans: CRM QA 提供方
+icon_small: _assets/icon.svg
+icon_large: _assets/icon.svg
+description:
+  en_US: Connect to CRM QA API.
+  zh_Hans: 连接 CRM QA API。
+credentials_schema:
+  - variable: base_url
+    label:
+      en_US: CRM Base URL
+      zh_Hans: CRM 基础地址
+    type: text-input
+    required: true
+    default: http://127.0.0.1:8000
+  - variable: api_key
+    label:
+      en_US: CRM API Key
+      zh_Hans: CRM API 密钥
+    type: secret-input
+    required: false
+  - variable: timeout
+    label:
+      en_US: Timeout Seconds
+      zh_Hans: 超时秒数
+    type: number
+    required: false
+    default: 10
+provider_type: online_document
+datasources:
+  - datasources/crm_qa.yaml

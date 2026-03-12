@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>客群信息</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>客群信息</h1>
+        <div class="muted">群画像与成员画像管理</div>
+      </div>
+      <div class="top-actions">
+        <a class="btn-outline" href="/bots">返回 Bot 运营中心</a>
+      </div>
+    </header>
+
+    <main class="two-col">
+      <aside class="panel">
+        <div class="panel-title">群聊列表</div>
+        <div class="group-search">
+          <input id="audienceSearch" placeholder="搜索群聊..." autocomplete="off" />
+        </div>
+        <div class="group-list" id="audienceGroupList">
+          {% for g in groups %}
+            <button
+              class="group-item {% if selected_group and selected_group.id == g.id %}active{% endif %}"
+              data-id="{{ g.external_id }}"
+              data-text="{{ g.name | lower }}"
+              type="button"
+            >
+              <div class="title">{{ g.name }}</div>
+            </button>
+          {% endfor %}
+        </div>
+      </aside>
+
+      <section class="panel">
+        {% if selected_group %}
+          <div class="panel-title">群聊信息</div>
+          <div class="muted">当前群聊：{{ selected_group.name }}</div>
+
+          <div class="stats-card">
+            <div class="label">群画像摘要</div>
+            <div class="muted">
+              {% if profile and profile.summary_json %}
+                {{ profile.summary_json.get("summary_text") }}
+              {% else %}
+                暂无画像摘要
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="stats-card">
+            <div class="label">人工补充</div>
+            <form method="post" action="/audiences/profile/save" class="bot-form bot-form-block">
+              <input type="hidden" name="roomid" value="{{ selected_group.external_id }}" />
+              <input name="manual_summary" placeholder="人工总结（可选）" value="{{ profile.summary_json.get('manual_summary') if profile and profile.summary_json else '' }}" />
+              <input name="manual_tags" placeholder="人工标签（逗号分隔）" value="{{ profile.summary_json.get('manual_tags') if profile and profile.summary_json else '' }}" />
+              <textarea name="manual_notes" class="rpa-textarea" placeholder="人工补充说明">{{ profile.summary_json.get('manual_notes') if profile and profile.summary_json else '' }}</textarea>
+              <div class="rpa-actions">
+                <button class="btn" type="submit">保存人工信息</button>
+              </div>
+            </form>
+            {% if profile and profile.summary_json and (profile.summary_json.get('manual_summary') or profile.summary_json.get('manual_tags') or profile.summary_json.get('manual_notes')) %}
+              <div class="muted">
+                {% if profile.summary_json.get('manual_summary') %}<div>人工总结：{{ profile.summary_json.get('manual_summary') }}</div>{% endif %}
+                {% if profile.summary_json.get('manual_tags') %}<div>人工标签：{{ profile.summary_json.get('manual_tags') }}</div>{% endif %}
+                {% if profile.summary_json.get('manual_notes') %}<div>补充说明：{{ profile.summary_json.get('manual_notes') }}</div>{% endif %}
+              </div>
+            {% endif %}
+          </div>
+
+          <div class="stats-card">
+            <div class="label">群成员</div>
+            <div class="rpa-actions">
+              <form method="post" action="/audiences/members/sync">
+                <input type="hidden" name="roomid" value="{{ selected_group.external_id }}" />
+                <button class="btn-outline" type="submit">从公司API同步成员</button>
+              </form>
+            </div>
+            <form method="post" action="/audiences/members/save" class="bot-form bot-form-block" id="memberForm">
+              <input type="hidden" name="roomid" value="{{ selected_group.external_id }}" />
+              <input type="hidden" name="member_id" id="memberId" />
+              <input name="name" id="memberName" placeholder="成员名称" required />
+              <input name="nickname" id="memberNickname" placeholder="群内昵称（人工填写）" />
+              <input name="real_name" id="memberRealName" placeholder="真实称呼（人工填写）" />
+              <input name="external_user_id" id="memberExternal" placeholder="外部用户ID（可选）" />
+              <input name="role" id="memberRole" placeholder="角色（客户/技术/其他）" />
+              <textarea name="profile_text" id="memberProfile" class="rpa-textarea" placeholder="成员画像描述"></textarea>
+              <div class="rpa-actions">
+                <button class="btn" type="submit">保存成员</button>
+                <button class="btn-outline" type="button" onclick="resetMemberForm()">清空</button>
+              </div>
+            </form>
+
+            {% if members %}
+              <div class="table qa-table dense">
+                <div class="table-row table-head">
+                  <div>名称</div>
+                  <div>群内昵称</div>
+                  <div>真实称呼</div>
+                  <div>角色</div>
+                  <div>画像</div>
+                  <div>操作</div>
+                </div>
+                {% for m in members %}
+                  <div class="table-row">
+                    <div class="muted">{{ m.name }}</div>
+                    <div class="muted">{{ m.nickname or '-' }}</div>
+                    <div class="muted">{{ m.real_name or '-' }}</div>
+                    <div class="muted">{{ m.role or '-' }}</div>
+                    <div class="muted">{{ m.profile_text or '-' }}</div>
+                    <div>
+                      <button
+                        class="btn-outline"
+                        type="button"
+                        onclick="editMember('{{ m.id }}','{{ m.name }}','{{ m.nickname or '' }}','{{ m.real_name or '' }}','{{ m.external_user_id or '' }}','{{ m.role or '' }}','{{ (m.profile_text or '') | replace('\\n',' ') }}')"
+                      >编辑</button>
+                      <form method="post" action="/audiences/members/delete" style="display:inline" onsubmit="return confirm('确认删除该成员？');">
+                        <input type="hidden" name="roomid" value="{{ selected_group.external_id }}" />
+                        <input type="hidden" name="member_id" value="{{ m.id }}" />
+                        <button class="btn-outline" type="submit">删除</button>
+                      </form>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="muted">暂无成员信息。</div>
+            {% endif %}
+          </div>
+        {% else %}
+          <div class="muted">暂无群聊。</div>
+        {% endif %}
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const audienceSearch = document.getElementById("audienceSearch");
+    const audienceList = document.getElementById("audienceGroupList");
+    function fuzzyMatch(text, pattern) {
+      if (!pattern) return true;
+      let t = text.toLowerCase();
+      let p = pattern.toLowerCase();
+      let ti = 0;
+      let pi = 0;
+      while (ti < t.length && pi < p.length) {
+        if (t[ti] === p[pi]) {
+          pi += 1;
+        }
+        ti += 1;
+      }
+      return pi === p.length;
+    }
+    if (audienceSearch && audienceList) {
+      const items = Array.from(audienceList.querySelectorAll(".group-item"));
+      const applyFilter = () => {
+        const keyword = audienceSearch.value.trim().toLowerCase();
+        items.forEach((item) => {
+          const text = item.getAttribute("data-text") || "";
+          const match = !keyword || fuzzyMatch(text, keyword);
+          item.hidden = !match;
+        });
+      };
+      applyFilter();
+      audienceSearch.addEventListener("input", applyFilter);
+      items.forEach((item) => {
+        item.addEventListener("click", () => {
+          const id = item.getAttribute("data-id");
+          window.location.href = `/audiences?roomid=${id}`;
+        });
+      });
+    }
+
+    function editMember(id, name, nickname, realName, externalId, role, profile) {
+      document.getElementById("memberId").value = id || "";
+      document.getElementById("memberName").value = name || "";
+      document.getElementById("memberNickname").value = nickname || "";
+      document.getElementById("memberRealName").value = realName || "";
+      document.getElementById("memberExternal").value = externalId || "";
+      document.getElementById("memberRole").value = role || "";
+      document.getElementById("memberProfile").value = profile || "";
+    }
+    function resetMemberForm() {
+      document.getElementById("memberId").value = "";
+      document.getElementById("memberName").value = "";
+      document.getElementById("memberNickname").value = "";
+      document.getElementById("memberRealName").value = "";
+      document.getElementById("memberExternal").value = "";
+      document.getElementById("memberRole").value = "";
+      document.getElementById("memberProfile").value = "";
+    }
+  </script>
+</body>
+</html>

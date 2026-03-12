@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>QA 知识库</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>QA 知识库</h1>
+        <div class="muted">群聊分析 → 人工审核 → 标准化 → 入库</div>
+      </div>
+      <div class="top-actions">
+        <a class="btn-outline" href="/?group_id={{ selected_group.id if selected_group else '' }}">返回</a>
+      </div>
+    </header>
+
+    {% if groups %}
+      <main class="qa-page">
+        <section class="panel dashboard">
+          <div class="panel-title">仪表盘</div>
+          <div class="dashboard-grid">
+            <div class="stat-cards">
+              <a class="stat-card" href="/qa?group_id={{ selected_group.id if selected_group else '' }}#pool">
+                <div class="muted">待审核</div>
+                <div class="stat" id="statPending">{{ status_counts.pending }}</div>
+              </a>
+              <a class="stat-card" href="/qa?group_id={{ selected_group.id if selected_group else '' }}&status=approved#reviewed">
+                <div class="muted">已通过</div>
+                <div class="stat" id="statApproved">{{ status_counts.approved }}</div>
+              </a>
+              <a class="stat-card" href="/qa?group_id={{ selected_group.id if selected_group else '' }}&status=pushed#reviewed">
+                <div class="muted">已入库</div>
+                <div class="stat" id="statPushed">{{ status_counts.pushed }}</div>
+              </a>
+            </div>
+            <form method="get" action="/qa" class="dashboard-filters" id="dashboardFilterForm">
+              <label>
+                客户群
+                <select name="group_id" id="groupSelect">
+                  {% for g in groups %}
+                    <option value="{{ g.id }}" {% if selected_group and selected_group.id == g.id %}selected{% endif %}>{{ g.name }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>
+                群聊模糊筛选
+                <input id="groupSearchInput" placeholder="输入群聊关键词" />
+              </label>
+              <label>
+                业务类型
+                <input name="business_type" placeholder="例如：SaaS / 运营 / 售前" />
+              </label>
+              <label>
+                状态
+                <select name="status">
+                  <option value="">全部</option>
+                  <option value="approved" {% if status_filter == "approved" %}selected{% endif %}>已通过</option>
+                  <option value="pushed" {% if status_filter == "pushed" %}selected{% endif %}>已入库</option>
+                </select>
+              </label>
+              <label>
+                关键词
+                <input name="q" placeholder="主题/关键词" />
+              </label>
+              <div class="dashboard-actions">
+                <button class="btn-outline" type="submit">应用筛选</button>
+              </div>
+            </form>
+            {% if selected_group %}
+              <form method="post" action="/qa/group/{{ selected_group.id }}/sync-all" class="dashboard-actions" id="syncAllForm">
+                <button class="btn" type="submit" id="syncAllBtn">已审核一键入库</button>
+              </form>
+            {% endif %}
+          </div>
+        </section>
+
+        <div class="qa-content">
+        <section class="panel" id="pool">
+          <div class="panel-title">QA 候选池（已闭环待审核）</div>
+          <div id="bulkBar" class="bulk-bar" hidden data-scope="pool">
+            <div class="bulk-left">已选择 <span id="bulkCount">0</span> 条</div>
+            <div class="bulk-actions">
+              <button class="btn-outline" type="button" data-bulk="approve">批量通过</button>
+              <button class="btn-outline" type="button" data-bulk="reject">批量拒绝</button>
+              <button class="btn-outline" type="button" data-bulk="tag" disabled>批量打标签</button>
+              <button class="btn" type="button" data-bulk="push" disabled>批量入库</button>
+            </div>
+          </div>
+          {% if pending %}
+            <div class="qa-card-list">
+              <div class="qa-card-head">
+                <label class="check-all">
+                  <input type="checkbox" id="selectAll" />
+                  全选
+                </label>
+                <div class="muted">点击卡片查看详情</div>
+              </div>
+              {% for m in pending %}
+                <article class="qa-card qa-row"
+                         data-id="{{ m.id }}"
+                         data-content=""
+                         data-question="{{ (m.question or '') | e }}"
+                         data-answer="{{ (m.answer or '') | e }}"
+                         data-summary="{{ (m.summary or '') | e }}"
+                         data-theme="{{ (m.theme_title or '') | e }}"
+                         data-subtheme="{{ (m.summary or '') | e }}"
+                         data-state="{{ (m.state or '') | e }}"
+                         data-group="{{ selected_group.name if selected_group else '' }}">
+                  <div class="qa-card-left">
+                    <input type="checkbox" class="row-check" value="{{ m.id }}" />
+                  </div>
+                  <div class="qa-card-body">
+                    <div class="title">{{ m.question or '-' }}</div>
+                    <div class="muted">更新时间 {{ m.created_at.strftime("%Y-%m-%d %H:%M") if m.created_at else "-" }}</div>
+                  </div>
+                  <div class="qa-card-meta">
+                    {% if m.state in ["EXPLICITLY_CLOSED", "FINAL_CLOSED"] %}
+                      <span class="tag success">已闭环</span>
+                    {% else %}
+                      <span class="tag warn">进行中</span>
+                    {% endif %}
+                    <button class="btn-outline" type="button">查看详情</button>
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">
+              <div class="title">📭 当前没有待审核内容</div>
+              <div>你可以切换企业群聊、修改筛选条件，或等待新的群聊分析结果。</div>
+              <div class="actions">
+                <button class="btn-outline" type="button" onclick="location.reload()">刷新</button>
+              </div>
+            </div>
+          {% endif %}
+        </section>
+
+        <aside class="panel qa-drawer" id="detailDrawer">
+          <div class="drawer-header">
+            <div class="title" id="drawerTitle">问答详情</div>
+            <div class="muted" id="drawerSub"></div>
+          </div>
+          <div class="action-bar" id="actionBar" hidden>
+            <div class="tag info">待审核</div>
+            <div class="actions">
+              <button class="btn-outline" type="button" id="approveBtn">通过审核</button>
+              <button class="btn" type="button" id="pushBtn">一键入库</button>
+              <button class="btn-outline" type="button" id="rejectBtn">驳回</button>
+            </div>
+          </div>
+          <div class="drawer-content" id="drawerContentWrap" hidden>
+            <div class="story-card" id="storyCard" hidden>
+              <div class="story-row" id="rowGroup">
+                <div class="story-label">客户群</div>
+                <div id="storyGroup" class="story-value"></div>
+              </div>
+              <div class="story-row" id="rowCustomer">
+                <div class="story-label">客户名</div>
+                <div id="storyCustomer" class="story-value"></div>
+              </div>
+              <div class="story-row" id="rowAgent">
+                <div class="story-label">客服名</div>
+                <div id="storyAgent" class="story-value"></div>
+              </div>
+              <div class="story-row" id="rowStatus">
+                <div class="story-label">状态</div>
+                <div id="storyStatus" class="story-value"></div>
+              </div>
+            </div>
+            <div class="detail-card qa-card-detail" id="cardQuestion" hidden>
+              <div class="label">Q</div>
+              <div id="drawerQuestion" class="drawer-block editable" data-field="question"></div>
+            </div>
+            <div class="detail-card qa-card-detail" id="cardAnswer" hidden>
+              <div class="label">A</div>
+              <div id="drawerAnswer" class="drawer-block editable" data-field="answer"></div>
+            </div>
+            <div class="detail-card qa-card-detail" id="cardSummary" hidden>
+              <div class="label">摘要</div>
+              <div id="drawerSummary" class="drawer-block editable" data-field="summary"></div>
+            </div>
+            <div class="detail-card qa-card-detail" id="cardContent" hidden>
+              <div class="label">原始消息</div>
+              <div id="drawerContent" class="drawer-block"></div>
+            </div>
+            <div class="detail-card qa-card-detail" id="cardHistory" hidden>
+              <div class="label">历史 QA</div>
+              <div id="storyHistory" class="story-history"></div>
+            </div>
+          </div>
+          <form id="reviewForm" method="post" action="#" class="form" style="display:none;">
+            <input id="reviewSegment" name="segment" value="默认" required />
+            <input name="group_id" type="hidden" value="{{ selected_group.id if selected_group else '' }}" />
+            <input id="reviewQuestion" name="question" type="hidden" required />
+            <input id="reviewAnswer" name="answer" type="hidden" required />
+            <input id="reviewAction" name="action" type="hidden" value="save" />
+            <input name="tags" type="hidden" />
+            <input name="category" type="hidden" />
+            <input name="reviewer" type="hidden" />
+            <textarea name="notes" style="display:none;"></textarea>
+          </form>
+          <form id="rejectForm" method="post" action="#" class="form" style="display:none;">
+            <textarea name="notes"></textarea>
+          </form>
+        </aside>
+        </div>
+        <section class="panel" id="reviewed">
+          <div class="panel-title">已审核列表</div>
+          {% if reviewed %}
+            <div class="reviewed-toolbar">
+              <div class="muted">共 {{ reviewed | length }} 条</div>
+              <div class="reviewed-tools">
+                <input id="reviewSearch" placeholder="搜索问题 / 标签 / 产品" />
+                <button class="btn-outline" type="button" id="reviewToggle">收起列表</button>
+              </div>
+            </div>
+            <div id="reviewBulkBar" class="bulk-bar" hidden data-scope="reviewed">
+              <div class="bulk-left">已选择 <span id="reviewBulkCount">0</span> 条</div>
+              <div class="bulk-actions">
+                <button class="btn-outline" type="button" data-review-bulk="sync">批量同步</button>
+                <button class="btn-outline" type="button" data-review-bulk="push">批量入库</button>
+                <button class="btn-outline" type="button" data-review-bulk="delete">批量删除</button>
+              </div>
+            </div>
+            <div class="qa-table-wrap" id="reviewTableWrap">
+              <div class="table qa-table dense">
+                <div class="table-row table-head">
+                  <div>
+                    <label class="check-all">
+                      <input type="checkbox" id="reviewSelectAll" />
+                      全选
+                    </label>
+                  </div>
+                  <div>问题</div>
+                  <div>标签/分类</div>
+                  <div>状态</div>
+                  <div>更新时间</div>
+                  <div>操作</div>
+                </div>
+                {% for item in reviewed %}
+                  <div class="table-row reviewed-row"
+                       data-text="{{ ((item.question or '') ~ ' ' ~ (item.tags or '') ~ ' ' ~ (item.product or '') ~ ' ' ~ (item.category or '')) | e }}">
+                    <div>
+                      <input type="checkbox" class="review-row-check" value="{{ item.id }}" />
+                    </div>
+                    <div class="cell-wrap multiline">{{ item.question or '-' }}</div>
+                    <div class="cell-wrap">
+                      {% if item.category %}<span class="pill">{{ item.category }}</span>{% endif %}
+                      {% if item.tags %}<span class="pill">{{ item.tags }}</span>{% endif %}
+                      {% if item.product %}<span class="pill">{{ item.product }}</span>{% endif %}
+                    </div>
+                    <div>
+                      {% if item.status == "pushed" %}
+                        <span class="tag ok">已入库</span>
+                      {% elif item.status == "approved" %}
+                        <span class="tag info">已通过</span>
+                      {% else %}
+                        <span class="tag">{{ item.status }}</span>
+                      {% endif %}
+                    </div>
+                    <div class="muted">
+                      {{ item.updated_at.strftime("%Y-%m-%d %H:%M") if item.updated_at else (item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else "-") }}
+                    </div>
+                    <div>
+                      <form method="post" action="/qa/{{ item.id }}/sync" class="sync-item-form">
+                        <button class="btn-outline" type="submit">同步入库</button>
+                      </form>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% else %}
+            <div class="muted">暂无已审核记录。</div>
+          {% endif %}
+        </section>
+      </main>
+    {% else %}
+      <p class="muted">暂无客户群。</p>
+    {% endif %}
+  </div>
+  <div class="log-float" id="logFloat">
+    <div class="log-float-header">
+      <div>同步日志</div>
+      <div class="log-float-actions">
+        <button class="btn-outline" type="button" id="logToggle">收起</button>
+      </div>
+    </div>
+    <div class="log-float-body" id="logBody"></div>
+  </div>
+  <script>
+    const bulkBar = document.getElementById('bulkBar');
+    const bulkCount = document.getElementById('bulkCount');
+    const selectAll = document.getElementById('selectAll');
+    const checks = Array.from(document.querySelectorAll('.row-check'));
+    const drawer = document.getElementById('detailDrawer');
+    const rows = Array.from(document.querySelectorAll('.qa-row'));
+
+    function selectedIds() {
+      return checks.filter(c => c.checked).map(c => c.value);
+    }
+
+    function refreshBulk() {
+      const count = selectedIds().length;
+      if (bulkBar) {
+        bulkBar.hidden = count === 0;
+        bulkCount.textContent = String(count);
+      }
+    }
+
+    if (selectAll) {
+      selectAll.addEventListener('change', () => {
+        checks.forEach(c => (c.checked = selectAll.checked));
+        refreshBulk();
+      });
+    }
+
+    checks.forEach(c => c.addEventListener('change', refreshBulk));
+    refreshBulk();
+
+    rows.forEach(row => {
+      row.addEventListener('click', async (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'A' || e.target.closest('a')) {
+          return;
+        }
+        if (!drawer) return;
+        rows.forEach(r => r.classList.remove('active'));
+        row.classList.add('active');
+        document.getElementById('actionBar').hidden = false;
+        document.getElementById('drawerContentWrap').hidden = false;
+        document.getElementById('drawerTitle').textContent = row.dataset.group || '详情';
+        const themeTitle = row.dataset.theme || '';
+        const subTitle = row.dataset.subtheme || '';
+        const stateText = row.dataset.state || '';
+        const subLine = [themeTitle && `主题：${themeTitle}`, subTitle && `子问题：${subTitle}`, stateText && `状态：${stateText}`]
+          .filter(Boolean)
+          .join(' ｜ ');
+        document.getElementById('drawerSub').textContent = subLine || `消息ID ${row.dataset.id}`;
+        document.getElementById('drawerQuestion').textContent = row.dataset.question || '';
+        document.getElementById('drawerAnswer').textContent = row.dataset.answer || '';
+        document.getElementById('drawerSummary').textContent = row.dataset.summary || '';
+        document.getElementById('drawerContent').textContent = row.dataset.content || '';
+        document.getElementById('storyCard').hidden = false;
+        document.getElementById('cardQuestion').hidden = false;
+        document.getElementById('cardAnswer').hidden = false;
+        document.getElementById('cardSummary').hidden = false;
+        document.getElementById('cardContent').hidden = false;
+        document.getElementById('rowGroup').style.display = 'grid';
+        document.getElementById('storyGroup').textContent = row.dataset.group || '';
+        const reviewForm = document.getElementById('reviewForm');
+        const rejectForm = document.getElementById('rejectForm');
+        if (reviewForm) {
+          reviewForm.setAttribute('action', `/reviews/${row.dataset.id}/approve`);
+          document.getElementById('reviewQuestion').value = row.dataset.question || '';
+          document.getElementById('reviewAnswer').value = row.dataset.answer || '';
+          const segInput = document.getElementById('reviewSegment');
+          if (segInput) segInput.value = row.dataset.theme || '默认';
+        }
+        if (rejectForm) {
+          rejectForm.setAttribute('action', `/reviews/${row.dataset.id}/reject`);
+        }
+        try {
+          const groupId = document.getElementById('groupSelect')?.value || '';
+          const resp = await fetch(`/qa/story/${encodeURIComponent(row.dataset.id)}?group_id=${encodeURIComponent(groupId)}`);
+          if (resp.ok) {
+            const data = await resp.json();
+            const setRow = (rowId, elId, value) => {
+              const rowEl = document.getElementById(rowId);
+              const val = (value || '').toString().trim();
+              if (!rowEl) return;
+              rowEl.style.display = val ? 'grid' : 'none';
+              const el = document.getElementById(elId);
+              if (el) el.textContent = val;
+            };
+            setRow('rowGroup', 'storyGroup', data.group_name || row.dataset.group || '');
+            setRow('rowCustomer', 'storyCustomer', data.customer_name);
+            setRow('rowAgent', 'storyAgent', data.agent_name);
+            setRow('rowStatus', 'storyStatus', data.status);
+
+            const histEl = document.getElementById('storyHistory');
+            const history = data.history || [];
+            if (history.length) {
+              document.getElementById('cardHistory').hidden = false;
+              histEl.textContent = history
+                .map(h => `Q: ${h.q}\nA: ${h.a}\n状态: ${h.status || '-'}`)
+                .join('\n\n');
+            } else {
+              document.getElementById('cardHistory').hidden = true;
+              histEl.textContent = '';
+            }
+          }
+        } catch (e) {}
+      });
+    });
+
+    document.querySelectorAll('.editable').forEach(el => {
+      el.addEventListener('click', () => {
+        el.contentEditable = 'true';
+        el.focus();
+      });
+      el.addEventListener('blur', () => {
+        el.contentEditable = 'false';
+        if (el.dataset.field === 'question') {
+          document.getElementById('reviewQuestion').value = el.textContent.trim();
+        }
+        if (el.dataset.field === 'answer') {
+          document.getElementById('reviewAnswer').value = el.textContent.trim();
+        }
+      });
+    });
+
+    const reviewForm = document.getElementById('reviewForm');
+    if (reviewForm) {
+      reviewForm.addEventListener('submit', () => {
+        const q = document.getElementById('drawerQuestion').textContent.trim();
+        const a = document.getElementById('drawerAnswer').textContent.trim();
+        document.getElementById('reviewQuestion').value = q;
+        document.getElementById('reviewAnswer').value = a;
+      });
+    }
+
+    const approveBtn = document.getElementById('approveBtn');
+    const pushBtn = document.getElementById('pushBtn');
+    const rejectBtn = document.getElementById('rejectBtn');
+    function activeRow() {
+      return rows.find(r => r.classList.contains('active'));
+    }
+
+    function updateRowStatus(statusText, tagClass) {
+      const row = activeRow();
+      if (!row) return;
+      const tag = row.querySelector('.qa-card-meta .tag');
+      if (tag) {
+        tag.textContent = statusText;
+        tag.className = `tag ${tagClass}`;
+      }
+      const barTag = document.querySelector('#actionBar .tag');
+      if (barTag) {
+        barTag.textContent = statusText;
+        barTag.className = `tag ${tagClass}`;
+      }
+      const checkbox = row.querySelector('.row-check');
+      if (checkbox) checkbox.checked = false;
+      refreshBulk();
+    }
+
+    function removeActiveRow() {
+      const row = activeRow();
+      if (!row) return;
+      row.remove();
+      const remaining = Array.from(document.querySelectorAll('.qa-row'));
+      if (!remaining.length) {
+        const list = document.querySelector('.qa-card-list');
+        if (list) {
+          list.innerHTML = '';
+          const empty = document.createElement('div');
+          empty.className = 'empty-state';
+          empty.innerHTML = `
+            <div class="title">📭 当前没有待审核内容</div>
+            <div>你可以切换企业群聊、修改筛选条件，或等待新的群聊分析结果。</div>
+            <div class="actions">
+              <button class="btn-outline" type="button" onclick="location.reload()">刷新</button>
+            </div>
+          `;
+          list.replaceWith(empty);
+        }
+        if (drawer) {
+          drawer.querySelector('#actionBar')?.setAttribute('hidden', 'true');
+          drawer.querySelector('#drawerContentWrap')?.setAttribute('hidden', 'true');
+        }
+      } else {
+        remaining[0].classList.add('active');
+        remaining[0].scrollIntoView({ block: 'nearest' });
+        remaining[0].click();
+      }
+    }
+
+    function updateDashboardCounts({ pending = 0, approved = 0, pushed = 0 }) {
+      const pendingEl = document.getElementById('statPending');
+      const approvedEl = document.getElementById('statApproved');
+      const pushedEl = document.getElementById('statPushed');
+      if (pendingEl) {
+        const val = Math.max(0, (parseInt(pendingEl.textContent || '0', 10) || 0) + pending);
+        pendingEl.textContent = String(val);
+      }
+      if (approvedEl) {
+        const val = Math.max(0, (parseInt(approvedEl.textContent || '0', 10) || 0) + approved);
+        approvedEl.textContent = String(val);
+      }
+      if (pushedEl) {
+        const val = Math.max(0, (parseInt(pushedEl.textContent || '0', 10) || 0) + pushed);
+        pushedEl.textContent = String(val);
+      }
+    }
+
+    function setActionDisabled(disabled) {
+      if (approveBtn) approveBtn.disabled = disabled;
+      if (pushBtn) pushBtn.disabled = disabled;
+      if (rejectBtn) rejectBtn.disabled = disabled;
+    }
+
+    async function submitFormSilently(form) {
+      const formData = new FormData(form);
+      const url = form.getAttribute('action') || form.action;
+      const resp = await fetch(url, { method: 'POST', body: formData });
+      if (!resp.ok) throw new Error('request failed');
+      return resp;
+    }
+
+    if (approveBtn && reviewForm) {
+      approveBtn.addEventListener('click', async () => {
+        document.getElementById('reviewAction').value = 'save';
+        setActionDisabled(true);
+        try {
+          await submitFormSilently(reviewForm);
+          updateRowStatus('已通过', 'success');
+          updateDashboardCounts({ pending: -1, approved: 1 });
+          removeActiveRow();
+        } catch (e) {
+          alert('提交失败，请重试');
+        } finally {
+          setActionDisabled(false);
+        }
+      });
+    }
+    if (pushBtn && reviewForm) {
+      pushBtn.addEventListener('click', async () => {
+        document.getElementById('reviewAction').value = 'push';
+        setActionDisabled(true);
+        try {
+          await submitFormSilently(reviewForm);
+          updateRowStatus('已入库', 'success');
+          updateDashboardCounts({ pending: -1, pushed: 1 });
+          removeActiveRow();
+        } catch (e) {
+          alert('提交失败，请重试');
+        } finally {
+          setActionDisabled(false);
+        }
+      });
+    }
+    if (rejectBtn) {
+      rejectBtn.addEventListener('click', async () => {
+        const rejectForm = document.getElementById('rejectForm');
+        if (!rejectForm) return;
+        const note = prompt('请输入拒绝原因（可选）', '');
+        rejectForm.querySelector('textarea[name="notes"]').value = note || '';
+        setActionDisabled(true);
+        try {
+          await submitFormSilently(rejectForm);
+          updateRowStatus('已驳回', 'warn');
+          updateDashboardCounts({ pending: -1 });
+          removeActiveRow();
+        } catch (e) {
+          alert('提交失败，请重试');
+        } finally {
+          setActionDisabled(false);
+        }
+      });
+    }
+
+    async function postJson(url, body) {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return resp.json();
+    }
+
+    document.querySelectorAll('[data-bulk]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (btn.disabled) return;
+        const ids = selectedIds();
+        if (!ids.length) return;
+        const action = btn.dataset.bulk;
+        const groupId = document.getElementById('groupSelect')?.value || '';
+        if (action === 'approve') {
+          await postJson('/qa/batch/approve', { ids, group_id: groupId });
+          location.reload();
+        }
+        if (action === 'reject') {
+          await postJson('/qa/batch/reject', { ids, group_id: groupId });
+          location.reload();
+        }
+        if (action === 'tag') {
+          const tags = prompt('输入标签（逗号分隔）', '');
+          if (tags !== null) {
+            await postJson('/qa/batch/tag', { ids, tags });
+            location.reload();
+          }
+        }
+        if (action === 'push') {
+          if (confirm('确认批量写入 Dify 知识库？')) {
+            await postJson('/qa/batch/push', { ids });
+            location.reload();
+          }
+        }
+      });
+    });
+
+    const groupSearchInput = document.getElementById('groupSearchInput');
+    const groupSelect = document.getElementById('groupSelect');
+    if (groupSearchInput && groupSelect) {
+      groupSearchInput.addEventListener('input', () => {
+        const q = groupSearchInput.value.toLowerCase().trim();
+        let firstMatch = null;
+        Array.from(groupSelect.options).forEach(opt => {
+          if (!q) {
+            opt.hidden = false;
+            opt.style.display = '';
+            return;
+          }
+          const hit = opt.text.toLowerCase().includes(q);
+          opt.hidden = !hit;
+          opt.style.display = hit ? '' : 'none';
+          if (hit && !firstMatch) {
+            firstMatch = opt;
+          }
+        });
+        if (firstMatch) groupSelect.value = firstMatch.value;
+      });
+      groupSearchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          document.getElementById('dashboardFilterForm')?.requestSubmit();
+        }
+      });
+      groupSelect.addEventListener('change', () => {
+        document.getElementById('dashboardFilterForm')?.requestSubmit();
+      });
+    }
+
+    const syncAllForm = document.getElementById('syncAllForm');
+    const syncAllBtn = document.getElementById('syncAllBtn');
+    if (syncAllForm && syncAllBtn) {
+      syncAllForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        syncAllBtn.disabled = true;
+        const formData = new FormData(syncAllForm);
+        try {
+          const resp = await fetch(syncAllForm.getAttribute('action') || syncAllForm.action, {
+            method: 'POST',
+            body: formData,
+          });
+          const data = await resp.json();
+          if (!resp.ok || data.ok === false) {
+            throw new Error(data.error || '同步失败');
+          }
+          syncAllBtn.textContent = '已入库';
+        } catch (err) {
+          alert(`同步失败：${err.message || '请重试'}`);
+        } finally {
+          setTimeout(() => {
+            syncAllBtn.disabled = false;
+            syncAllBtn.textContent = '已审核一键入库';
+          }, 1200);
+        }
+      });
+    }
+
+    const reviewSearch = document.getElementById('reviewSearch');
+    const reviewToggle = document.getElementById('reviewToggle');
+    const reviewTableWrap = document.getElementById('reviewTableWrap');
+    const reviewRows = Array.from(document.querySelectorAll('.reviewed-row'));
+    const reviewSelectAll = document.getElementById('reviewSelectAll');
+    const reviewChecks = Array.from(document.querySelectorAll('.review-row-check'));
+    const reviewBulkBar = document.getElementById('reviewBulkBar');
+    const reviewBulkCount = document.getElementById('reviewBulkCount');
+
+    function applyReviewFilter() {
+      const q = (reviewSearch?.value || '').toLowerCase().trim();
+      let visible = 0;
+      reviewRows.forEach(row => {
+        const text = (row.dataset.text || '').toLowerCase();
+        const hit = !q || text.includes(q);
+        row.style.display = hit ? '' : 'none';
+        if (hit) visible += 1;
+      });
+      if (reviewToggle) {
+        reviewToggle.textContent = (reviewTableWrap && reviewTableWrap.classList.contains('reviewed-collapsed'))
+          ? '展开列表'
+          : '收起列表';
+      }
+    }
+
+    if (reviewSearch) {
+      reviewSearch.addEventListener('input', applyReviewFilter);
+    }
+
+    if (reviewToggle && reviewTableWrap) {
+      reviewToggle.addEventListener('click', () => {
+        reviewTableWrap.classList.toggle('reviewed-collapsed');
+        reviewToggle.textContent = reviewTableWrap.classList.contains('reviewed-collapsed')
+          ? '展开列表'
+          : '收起列表';
+      });
+    }
+
+    function selectedReviewIds() {
+      return reviewChecks.filter(c => c.checked).map(c => Number(c.value));
+    }
+
+    function refreshReviewBulk() {
+      const count = selectedReviewIds().length;
+      if (reviewBulkBar) {
+        reviewBulkBar.hidden = count === 0;
+        if (reviewBulkCount) reviewBulkCount.textContent = String(count);
+      }
+    }
+
+    if (reviewSelectAll) {
+      reviewSelectAll.addEventListener('change', () => {
+        reviewChecks.forEach(c => (c.checked = reviewSelectAll.checked));
+        refreshReviewBulk();
+      });
+    }
+    reviewChecks.forEach(c => c.addEventListener('change', refreshReviewBulk));
+    refreshReviewBulk();
+
+    document.querySelectorAll('[data-review-bulk]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const ids = selectedReviewIds();
+        const action = btn.dataset.reviewBulk;
+        if (action === 'sync') {
+          const groupId = document.getElementById('groupSelect')?.value || '';
+          const res = await postJson('/qa/batch/sync', { ids, group_id: groupId });
+          if (res && res.ok === false) {
+            alert(`同步失败：${res.error || '请重试'}`);
+            return;
+          }
+          location.reload();
+        }
+        if (action === 'push') {
+          const res = await postJson('/qa/batch/push', { ids });
+          if (res && res.ok === false) {
+            alert(`同步失败：${res.error || '请重试'}`);
+            return;
+          }
+          location.reload();
+        }
+        if (action === 'delete') {
+          if (confirm('确认删除选中的 QA 记录？此操作不可恢复。')) {
+            const res = await postJson('/qa/batch/delete', { ids });
+            if (res && res.ok === false) {
+              alert(`删除后同步失败：${res.error || '请重试'}`);
+              return;
+            }
+            location.reload();
+          }
+        }
+      });
+    });
+
+    document.querySelectorAll('.sync-item-form').forEach((form) => {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = form.querySelector('button');
+        if (btn) btn.disabled = true;
+        try {
+          const resp = await fetch(form.getAttribute('action') || form.action, {
+            method: 'POST',
+            body: new FormData(form),
+          });
+          const data = await resp.json();
+          if (!resp.ok || data.ok === false) {
+            throw new Error(data.error || '同步失败');
+          }
+          if (btn) btn.textContent = '已入库';
+        } catch (err) {
+          alert(`同步失败：${err.message || '请重试'}`);
+        } finally {
+          if (btn) {
+            setTimeout(() => {
+              btn.disabled = false;
+              btn.textContent = '同步入库';
+            }, 1200);
+          }
+        }
+      });
+    });
+
+    const logFloat = document.getElementById('logFloat');
+    const logBody = document.getElementById('logBody');
+    const logToggle = document.getElementById('logToggle');
+    let logCollapsed = false;
+    let lastLogIds = new Set();
+
+    function renderLogs(logs) {
+      if (!logBody) return;
+      logBody.innerHTML = '';
+      logs.forEach((item) => {
+        const row = document.createElement('div');
+        row.className = 'log-row';
+        const time = (item.created_at || '').replace('T', ' ').replace('Z', '');
+        row.innerHTML = `
+          <span class="log-time">${time}</span>
+          <span class="log-status ${item.status === 'success' ? 'ok' : item.status === 'failed' ? 'warn' : 'info'}">${item.status}</span>
+          <span class="log-text">${item.action || 'action'}：${item.message || ''}</span>
+        `;
+        logBody.appendChild(row);
+      });
+    }
+
+    async function fetchLogs() {
+      if (!logBody) return;
+      const groupId = document.getElementById('groupSelect')?.value || '';
+      const url = `/api/qa/logs?group_id=${encodeURIComponent(groupId)}&limit=50`;
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const logs = Array.isArray(data.logs) ? data.logs : [];
+        const ids = new Set(logs.map(l => l.id));
+        const changed = logs.length !== lastLogIds.size || [...ids].some(id => !lastLogIds.has(id));
+        if (changed) {
+          lastLogIds = ids;
+          renderLogs(logs);
+        }
+      } catch (e) {}
+    }
+
+    if (logToggle && logFloat) {
+      logToggle.addEventListener('click', () => {
+        logCollapsed = !logCollapsed;
+        logFloat.classList.toggle('collapsed', logCollapsed);
+        logToggle.textContent = logCollapsed ? '展开' : '收起';
+      });
+    }
+
+    fetchLogs();
+    setInterval(fetchLogs, 5000);
+  </script>
+</body>
+</html>

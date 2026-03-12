@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>客户群分析 - {{ group.name }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div>
+        <h1>{{ group.name }}</h1>
+        <div class="muted">外部ID: {{ group.external_id }}</div>
+      </div>
+      <div class="actions">
+        <form method="post" action="/groups/{{ group.id }}/analyze">
+          <button class="btn">拉取消息并分析</button>
+        </form>
+        <a class="btn-outline" href="/">返回列表</a>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>待人工检阅</h2>
+      {% if pending %}
+        <ul class="list">
+          {% for m in pending %}
+            <li class="list-item">
+              <div>
+                <div class="title">{{ m.content }}</div>
+                <div class="muted">消息ID: {{ m.external_message_id }}</div>
+              </div>
+              <a class="btn-outline" href="/reviews/{{ m.id }}">去检阅</a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">暂无待检阅消息。</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>已处理</h2>
+      {% if reviewed %}
+        <ul class="list">
+          {% for m in reviewed %}
+            <li class="list-item">
+              <div>
+                <div class="title">{{ m.content }}</div>
+                <div class="muted">状态: {{ m.status }}</div>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">暂无已处理消息。</p>
+      {% endif %}
+    </section>
+  </div>
+</body>
+</html>

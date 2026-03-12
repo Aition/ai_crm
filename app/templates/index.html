@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI CRM - 客户群分析</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>客户群分析</h1>
+        <div class="muted">选择群 → 一键分析 → 形成主题与 QA 闭环</div>
+      </div>
+      <div class="top-actions">
+        <form method="post" action="/sync/groups">
+          <button class="btn">同步客户群</button>
+        </form>
+        <a class="btn-outline" href="/bots">Bot 运营中心</a>
+        <a class="btn-outline" href="/qa?group_id={{ selected_group.id if selected_group else '' }}">QA 知识库</a>
+        <a class="btn-outline" href="/closed-issues">闭环问题库</a>
+      </div>
+    </header>
+
+    <section class="control-bar">
+      <form method="post" action="/settings/company-api" class="form-inline">
+        <input name="api_base" value="{{ api_base }}" placeholder="公司 API 基础地址" required />
+        <input name="api_key" value="{{ api_key }}" placeholder="ApiKey (可选)" />
+        <button class="btn-outline" type="submit">保存 ApiKey</button>
+      </form>
+      <div class="muted">当前使用本地保存的 ApiKey；未填时按匿名访问。</div>
+    </section>
+
+    <main class="three-col">
+      <aside class="panel">
+        <div class="panel-title">客户群</div>
+        {% if groups %}
+          <div class="group-search">
+            <input id="groupSearch" placeholder="搜索客户群..." autocomplete="off" />
+            <div class="current-group">
+              当前：{{ selected_group.name }}
+            </div>
+          </div>
+          <div class="group-list" id="groupList">
+            {% for g in groups %}
+              <button
+                class="group-item {% if selected_group and selected_group.id == g.id %}active{% endif %}"
+                data-id="{{ g.id }}"
+                data-text="{{ g.name | lower }}"
+                type="button"
+              >
+                <div class="title">{{ g.name }}</div>
+                <div class="counts">
+                  <span>总数 {{ counts.get(g.id, 0) }}</span>
+                  <span>已分析 {{ analyzed_counts.get(g.id, 0) }}</span>
+                  <span>未分析 {{ un_analyzed_counts.get(g.id, 0) }}</span>
+                </div>
+              </button>
+            {% endfor %}
+          </div>
+          <div class="group-footer">
+            <span id="groupCount"></span>
+            <div class="group-footer-actions">
+              <button id="refreshGroupList" class="btn-outline" type="button">刷新列表</button>
+              <button id="toggleGroupList" class="btn-outline" type="button">显示更多</button>
+            </div>
+          </div>
+        {% else %}
+          <div class="muted">暂无客户群，点击同步。</div>
+        {% endif %}
+      </aside>
+
+      <section class="panel">
+        <div class="panel-title">分析控制与过程</div>
+        {% if selected_group %}
+          <div class="control-box">
+            <div class="control-meta">
+              <div class="meta-row meta-row-stack">
+                <span class="label">当前企业客户</span>
+                <span class="badge">{{ selected_group.name }}</span>
+              </div>
+              <div class="meta-row">
+                <span class="label">最近分析时间</span>
+                <span class="value" id="lastRun">
+                  {% if current_task and current_task.started_at %}
+                    {{ current_task.started_at.strftime("%H:%M:%S") }}
+                  {% else %}
+                    暂无
+                  {% endif %}
+                </span>
+              </div>
+              <div class="meta-row">
+                <span class="label">任务状态</span>
+                {% if current_task %}
+                  {% if current_task.status == "completed" %}
+                    <span class="status status-success" id="taskStatus">已完成</span>
+                  {% elif current_task.status == "running" %}
+                    <span class="status status-running" id="taskStatus">进行中</span>
+                  {% else %}
+                    <span class="status status-waiting" id="taskStatus">{{ current_task.status }}</span>
+                  {% endif %}
+                {% else %}
+                  <span class="status status-waiting" id="taskStatus">待分析</span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="control-cta">
+              <form id="runAnalysisForm" method="post" action="/analysis/run">
+                <input type="hidden" name="group_id" value="{{ selected_group.id }}" />
+                <button id="runAnalysisBtn" class="btn btn-lg" {% if current_task and current_task.status == "running" %}disabled{% endif %}>
+                  {% if current_task and current_task.status == "running" %}
+                    分析中…
+                  {% else %}
+                    一键分析
+                  {% endif %}
+                </button>
+              </form>
+              <form method="post" action="/analysis/{{ selected_group.id }}/reset" onsubmit="return confirm('确认清空该客户群的所有分析结果？此操作不可恢复。');">
+                <button class="btn-outline" type="submit">清空分析结果</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="progress-card">
+            <div class="label">阶段进度</div>
+            <div class="progress">
+              <div class="progress-bar" id="progressBar" style="width: {% if current_task and current_task.status == 'completed' %}100{% else %}40{% endif %}%"></div>
+            </div>
+            <div class="progress-steps">
+              <span class="step done">数据清洗</span>
+              <span class="step done">QA 抽取</span>
+              <span class="step done">主题聚合</span>
+              <span class="step done">闭环分析</span>
+              <span class="step {% if current_task and current_task.status == 'completed' %}done{% endif %}">完成</span>
+            </div>
+          </div>
+
+          <div class="log-card">
+            <div class="label">日志流</div>
+            {% if logs %}
+              <div class="log-list" id="logList">
+                {% for log in logs %}
+                  <div class="log-item">[{{ log.created_at.strftime("%H:%M:%S") }}] {{ log.message }}</div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="muted">暂无日志</div>
+            {% endif %}
+          </div>
+
+          <div class="stats-card">
+            <div class="label">当前处理进度</div>
+            <div class="stats-grid">
+              <div>
+                <div class="stat" id="statSegments">{{ current_task.segments_count or "-" }}</div>
+                <div class="muted">Segment</div>
+              </div>
+              <div>
+                <div class="stat" id="statQa">{{ current_task.qa_count or "-" }}</div>
+                <div class="muted">QA 条数</div>
+              </div>
+              <div>
+                <div class="stat" id="statTopics">{{ current_task.topics_count or "-" }}</div>
+                <div class="muted">主题</div>
+              </div>
+              <div>
+                <div class="stat" id="statClosed">{{ current_task.closed_topics_count or "-" }}</div>
+                <div class="muted">已闭环</div>
+              </div>
+            </div>
+          </div>
+        {% else %}
+          <p class="muted">请先同步并选择客户群。</p>
+        {% endif %}
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">分析结果（当前 / 历史）</div>
+        {% if result %}
+          <div class="result-tree">
+            {% for topic in result.result_json.topics %}
+              <details class="topic" open>
+                <summary>
+                  <span class="title">{{ topic.title }}</span>
+                  <span class="tag">{{ topic.status }}</span>
+                </summary>
+                <div class="topic-meta">
+                  <div>更新时间：{{ topic.last_updated }}</div>
+                  <div>时间跨度：{{ topic.span }}</div>
+                  <div>消息数：{{ topic.message_count }}</div>
+                  <div>参与人员：{{ topic.participants | join(", ") }}</div>
+                </div>
+                {% for q in topic.questions %}
+                  <details class="subtopic">
+                    <summary>{{ q.title }}</summary>
+                    {% for qa in q.qa_chain %}
+                      <div class="qa">
+                        <div><strong>Q：</strong>{{ qa.q }}</div>
+                        <div><strong>A：</strong>{{ qa.a }}</div>
+                        <div class="muted">状态：{{ qa.status }}</div>
+                      </div>
+                    {% endfor %}
+                  </details>
+                {% endfor %}
+              </details>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="muted">暂无分析结果</div>
+        {% endif %}
+
+        <div class="history">
+          <div class="label">历史分析记录</div>
+          {% if history %}
+            <ul class="history-list">
+              {% for item in history %}
+                <li>
+                  <a href="/?group_id={{ selected_group.id }}&task_id={{ item.id }}" class="history-link">
+                    {{ item.version_label }}（分析 {{ item.message_count or "-" }} 条消息）
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <div class="muted">暂无历史记录</div>
+          {% endif %}
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const groupSearch = document.getElementById("groupSearch");
+    const groupList = document.getElementById("groupList");
+    const toggleBtn = document.getElementById("toggleGroupList");
+    const refreshBtn = document.getElementById("refreshGroupList");
+    const groupCount = document.getElementById("groupCount");
+    const runForm = document.getElementById("runAnalysisForm");
+    const runBtn = document.getElementById("runAnalysisBtn");
+    let currentTaskId = "{{ current_task.id if current_task else '' }}";
+    const LIMIT = 8;
+    let expanded = false;
+
+    function fuzzyMatch(text, pattern) {
+      if (!pattern) return true;
+      let t = text.toLowerCase();
+      let p = pattern.toLowerCase();
+      let ti = 0;
+      let pi = 0;
+      while (ti < t.length && pi < p.length) {
+        if (t[ti] === p[pi]) {
+          pi += 1;
+        }
+        ti += 1;
+      }
+      return pi === p.length;
+    }
+
+    if (groupSearch && groupList) {
+      const items = Array.from(groupList.querySelectorAll(".group-item"));
+      const applyFilter = () => {
+        const keyword = groupSearch.value.trim().toLowerCase();
+        let visible = 0;
+        items.forEach((item) => {
+          const text = item.getAttribute("data-text") || "";
+          const match = !keyword || fuzzyMatch(text, keyword);
+          if (!match) {
+            item.hidden = true;
+            return;
+          }
+          visible += 1;
+          item.hidden = !expanded && visible > LIMIT;
+        });
+        if (groupCount) {
+          groupCount.textContent = `匹配 ${visible} 个`;
+        }
+        if (toggleBtn) {
+          toggleBtn.style.display = visible > LIMIT ? "inline-block" : "none";
+          toggleBtn.textContent = expanded ? "收起" : "显示更多";
+        }
+      };
+      groupSearch.addEventListener("input", applyFilter);
+      groupSearch.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          const first = items.find((item) => !item.hidden);
+          if (first) {
+            const id = first.getAttribute("data-id");
+            window.location.href = `/?group_id=${id}`;
+          }
+        }
+      });
+      items.forEach((item) => {
+        item.addEventListener("click", () => {
+          const id = item.getAttribute("data-id");
+          window.location.href = `/?group_id=${id}`;
+        });
+      });
+      if (toggleBtn) {
+        toggleBtn.addEventListener("click", () => {
+          expanded = !expanded;
+          applyFilter();
+        });
+      }
+      if (refreshBtn) {
+        refreshBtn.addEventListener("click", () => {
+          window.location.reload();
+        });
+      }
+      applyFilter();
+    }
+
+    async function refreshStatus() {
+      const groupId = "{{ selected_group.id if selected_group else '' }}";
+      if (!groupId) return;
+      try {
+        const taskParam = currentTaskId ? `&task_id=${currentTaskId}` : "";
+        const resp = await fetch(`/api/analysis/status?group_id=${groupId}${taskParam}`, { cache: "no-store" });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const task = data.task;
+        const logs = data.logs || [];
+        if (task) {
+          const statusEl = document.getElementById("taskStatus");
+          if (statusEl) {
+            statusEl.textContent = task.status === "completed" ? "已完成" : task.status === "running" ? "进行中" : task.status;
+            statusEl.className = `status ${task.status === "completed" ? "status-success" : task.status === "running" ? "status-running" : "status-waiting"}`;
+          }
+          if (task.started_at) {
+            const t = new Date(task.started_at);
+            const lastRun = document.getElementById("lastRun");
+            if (lastRun) lastRun.textContent = t.toTimeString().slice(0, 8);
+          }
+          const progress = document.getElementById("progressBar");
+          if (progress) {
+            progress.style.width = task.status === "completed" ? "100%" : task.status === "running" ? "60%" : "40%";
+          }
+          const statSegments = document.getElementById("statSegments");
+          if (statSegments) statSegments.textContent = task.segments_count ?? "-";
+          const statQa = document.getElementById("statQa");
+          if (statQa) statQa.textContent = task.qa_count ?? "-";
+          const statTopics = document.getElementById("statTopics");
+          if (statTopics) statTopics.textContent = task.topics_count ?? "-";
+          const statClosed = document.getElementById("statClosed");
+          if (statClosed) statClosed.textContent = task.closed_topics_count ?? "-";
+          if (runBtn) {
+            runBtn.disabled = task.status === "running";
+            runBtn.textContent = task.status === "running" ? "分析中…" : "一键分析";
+          }
+        }
+        if (task && task.id) currentTaskId = task.id;
+        const logList = document.getElementById("logList");
+        if (logList) {
+          logList.innerHTML = logs
+            .map((log) => {
+              const t = log.created_at ? new Date(log.created_at) : null;
+              const ts = t ? t.toTimeString().slice(0, 8) : "--:--:--";
+              return `<div class="log-item">[${ts}] ${log.message}</div>`;
+            })
+            .join("");
+        }
+      } catch (e) {}
+    }
+
+    if (runForm && runBtn) {
+      runForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (runBtn.disabled) return;
+        runBtn.disabled = true;
+        runBtn.textContent = "分析中…";
+        try {
+          const resp = await fetch(runForm.action, {
+            method: "POST",
+            body: new FormData(runForm),
+            headers: {
+              "X-Requested-With": "XMLHttpRequest",
+              "Accept": "application/json"
+            }
+          });
+          if (!resp.ok) {
+            runBtn.disabled = false;
+            runBtn.textContent = "一键分析";
+            return;
+          }
+          const data = await resp.json();
+          if (data && data.task_id) {
+            currentTaskId = data.task_id;
+          }
+          const statusEl = document.getElementById("taskStatus");
+          if (statusEl) {
+            statusEl.textContent = "进行中";
+            statusEl.className = "status status-running";
+          }
+          const lastRun = document.getElementById("lastRun");
+          if (lastRun) {
+            const now = new Date();
+            lastRun.textContent = now.toTimeString().slice(0, 8);
+          }
+        } catch (e) {
+          runBtn.disabled = false;
+          runBtn.textContent = "一键分析";
+        }
+        setTimeout(refreshStatus, 500);
+      });
+    }
+
+    setInterval(refreshStatus, 3000);
+  </script>
+</body>
+</html>
