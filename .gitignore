@@ -1,0 +1,29 @@
+.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+.env.*
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+*.dmp
+*.sqlite
+*.sqlite3
+*.db
+
+# Local artifacts
+*.difypkg
+*.zip
+
+# Mac
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
