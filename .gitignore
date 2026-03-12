@@ -19,6 +19,10 @@ __pycache__/
 # Prompts
 *提示词.md
 
+# Local docs & logs
+docs/
+工作日志/
+
 # Local artifacts
 *.difypkg
 *.zip
