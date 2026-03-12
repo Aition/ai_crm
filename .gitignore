@@ -16,6 +16,9 @@ __pycache__/
 *.sqlite3
 *.db
 
+# Prompts
+*提示词.md
+
 # Local artifacts
 *.difypkg
 *.zip
